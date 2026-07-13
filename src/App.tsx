@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { Fretboard } from "./components/Fretboard";
 import { SCALES, E_STANDARD, NOTE_NAMES } from "./theory/data";
-import { diatonicChords, deduceSweepShape } from "./theory/chords";
+import { diatonicChords, deduceSweepShape, type ChordSize } from "./theory/chords";
 
 export default function App() {
   const [keyPc, setKeyPc] = useState(5); // F
   const [scaleName, setScaleName] = useState("harmonicMinor");
   const [chordDegree, setChordDegree] = useState(0); // tonic on load
 
+  const [chordSize, setChordSize] = useState<ChordSize>(4);
   const scale = SCALES.find((s) => s.name === scaleName) ?? SCALES[0];
-  const chords = diatonicChords(keyPc, scale);
+
+  const chords = diatonicChords(keyPc, scale, chordSize);
+
   const chord = chords[Math.min(chordDegree, chords.length - 1)];
   const sweep = deduceSweepShape(chord, E_STANDARD);
 
@@ -71,7 +74,24 @@ export default function App() {
       {/* ---- the mutable self: the module workspace ---- */}
       <section style={{ marginTop: "2rem" }}>
         <h2 style={{ fontSize: "1.1rem" }}>Sweep</h2>
-
+            <div style={{ display: "flex", gap: "0.5rem", margin: "0.5rem 0" }}>
+              {([3, 4] as const).map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setChordSize(size)}
+                  style={{
+                    padding: "0.3rem 0.7rem",
+                    border: chordSize === size ? "2px solid #1d9e75" : "1px solid #999",
+                    borderRadius: 6,
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontWeight: chordSize === size ? 600 : 400,
+                  }}
+                >
+                  {size === 3 ? "Triads" : "7th chords"}
+                </button>
+              ))}
+            </div>        
         <div
           style={{
             display: "flex",

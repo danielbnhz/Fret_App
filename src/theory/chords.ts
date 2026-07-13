@@ -11,6 +11,16 @@ export type DiatonicChord = {
   name: string;          // e.g. "Fm(maj7)"
   numeral: string;       // e.g. "i", "V", "vii°"
 };
+export type ChordSize = 3 | 4; // triad | seventh
+
+function triadQualityName(third: number, fifth: number): string {
+  if (third === 4 && fifth === 7) return "";   // major — bare letter, e.g. "C"
+  if (third === 3 && fifth === 7) return "m";
+  if (third === 3 && fifth === 6) return "°";
+  if (third === 4 && fifth === 8) return "+";
+  return "?";
+}
+
 
 const NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII"];
 
@@ -25,24 +35,38 @@ function qualityName(third: number, fifth: number, seventh: number): string {
   return "?"; // exotic scale produced something unnamed — still playable
 }
 
-export function diatonicChords(keyPc: number, scale: Scale): DiatonicChord[] {
+export function diatonicChords(
+  keyPc: number,
+  scale: Scale,
+  size: ChordSize = 4
+): DiatonicChord[] {
   const iv = scale.intervals;
   const n = iv.length;
   return iv.map((rootIv, d) => {
     const at = (step: number) => (iv[(d + step) % n] + (d + step >= n ? 12 : 0));
     const third = (at(2) - rootIv + 24) % 12;
     const fifth = (at(4) - rootIv + 24) % 12;
-    const seventh = (at(6) - rootIv + 24) % 12;
     const rootPc = pc(keyPc + rootIv);
-    const quality = qualityName(third, fifth, seventh);
+
+    const pcs = new Set([rootPc, pc(rootPc + third), pc(rootPc + fifth)]);
+    let quality: string;
+    if (size === 4) {
+      const seventh = (at(6) - rootIv + 24) % 12;
+      pcs.add(pc(rootPc + seventh));
+      quality = qualityName(third, fifth, seventh);
+    } else {
+      quality = triadQualityName(third, fifth);
+    }
+
     const minorish = third === 3;
     let numeral = minorish ? NUMERALS[d].toLowerCase() : NUMERALS[d];
     if (fifth === 6) numeral += "°";
     if (fifth === 8) numeral += "+";
+
     return {
       degree: d,
       rootPc,
-      pcs: new Set([rootPc, pc(rootPc + third), pc(rootPc + fifth), pc(rootPc + seventh)]),
+      pcs,
       name: `${NOTE_NAMES[rootPc]}${quality}`,
       numeral,
     };
