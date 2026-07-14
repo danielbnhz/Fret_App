@@ -78,10 +78,14 @@ export function diatonicChords(
 // Deterministic search: slide a 5-fret window up the neck, pick the
 // best-scoring placement. Same inputs -> same shape, every time.
 //
-// Playability rule: a two-string same-fret pair is fine (rolled
-// mini-barre — idiomatic sweep technique), but 3+ consecutive strings
-// on the same fret is a barre, and barres don't articulate as sweeps.
-// We avoid them at pick time and penalize them at score time.
+// Playability rule (position-dependent, from real sweep vocabulary):
+//  - same-fret PAIR: free on the top strings, tiny cost lower down
+//    (the rolled mini-barre is idiomatic anywhere, easiest up high)
+//  - same-fret TRIPLE: legal ONLY if it ends the sweep on the highest
+//    string (the maj7-style G-B-e roll); heavily penalized elsewhere
+//  - 4+ in a row: a barre, never a sweep, always heavily penalized
+// Enforced softly at pick time and scored at window time. No shape is
+// hardcoded — the rule is arithmetic on same-fret run endpoints.
 
 /** Length of the same-fret run ending at the last pick (>=1). */
 function tailRun(picks: Placement[]): number {
@@ -96,13 +100,28 @@ function tailRun(picks: Placement[]): number {
   return run;
 }
 
-/** Penalty for same-fret runs of 3+ adjacent strings: +10 per string beyond a pair. */
+/**
+ * Position-aware penalty for same-fret runs of adjacent strings.
+ * frets[] is ordered low string -> high string; a run "ends on top"
+ * when its last note sits on the highest string.
+ */
 function barrePenalty(frets: number[]): number {
   let penalty = 0;
-  let run = 1;
-  for (let i = 1; i < frets.length; i++) {
-    run = frets[i] === frets[i - 1] ? run + 1 : 1;
-    if (run >= 3) penalty += 10;
+  let i = 0;
+  const n = frets.length;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && frets[j + 1] === frets[i]) j++;
+    const len = j - i + 1;
+    const endsOnTop = j === n - 1;
+    if (len === 2) {
+      penalty += endsOnTop ? 0 : 1;      // rolled pair: free up top, mild tax lower
+    } else if (len === 3) {
+      penalty += endsOnTop ? 0 : 20;     // top-three roll (maj7 style): hard but idiomatic
+    } else if (len >= 4) {
+      penalty += 20 * (len - 2);         // true barre: never sweep material
+    }
+    i = j + 1;
   }
   return penalty;
 }
@@ -136,9 +155,13 @@ export function deduceSweepShape(
         fret = options.find((f) => pc(tuning[s] + f) === chord.rootPc) ?? options[0];
       } else {
         const prev = picks[picks.length - 1].fret;
-        // Would picking `f` extend an existing same-fret pair into a 3+ barre?
+        // Would picking `f` extend a same-fret run into illegal territory?
+        // Extending a pair into a triple is allowed ONLY when this note is
+        // the highest string (the run then ends the sweep on top).
         const run = tailRun(picks);
-        const extendsBarre = (f: number) => f === prev && run >= 2;
+        const isTopString = s === tuning.length - 1;
+        const extendsBarre = (f: number) =>
+          f === prev && run >= 2 && !(isTopString && run === 2);
         // Prefer barre-free candidates; fall back to all options if none exist.
         const safe = options.filter((f) => !extendsBarre(f));
         const pool = safe.length > 0 ? safe : options;
