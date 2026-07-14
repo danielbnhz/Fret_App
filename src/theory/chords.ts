@@ -77,6 +77,35 @@ export function diatonicChords(
 // A sweep = one chord tone per string inside a compact fret window.
 // Deterministic search: slide a 5-fret window up the neck, pick the
 // best-scoring placement. Same inputs -> same shape, every time.
+//
+// Playability rule: a two-string same-fret pair is fine (rolled
+// mini-barre — idiomatic sweep technique), but 3+ consecutive strings
+// on the same fret is a barre, and barres don't articulate as sweeps.
+// We avoid them at pick time and penalize them at score time.
+
+/** Length of the same-fret run ending at the last pick (>=1). */
+function tailRun(picks: Placement[]): number {
+  let run = 1;
+  for (
+    let k = picks.length - 1;
+    k > 0 && picks[k].fret === picks[k - 1].fret;
+    k--
+  ) {
+    run++;
+  }
+  return run;
+}
+
+/** Penalty for same-fret runs of 3+ adjacent strings: +10 per string beyond a pair. */
+function barrePenalty(frets: number[]): number {
+  let penalty = 0;
+  let run = 1;
+  for (let i = 1; i < frets.length; i++) {
+    run = frets[i] === frets[i - 1] ? run + 1 : 1;
+    if (run >= 3) penalty += 10;
+  }
+  return penalty;
+}
 
 export function deduceSweepShape(
   chord: DiatonicChord,
@@ -106,9 +135,16 @@ export function deduceSweepShape(
         // prefer the root under the lowest string
         fret = options.find((f) => pc(tuning[s] + f) === chord.rootPc) ?? options[0];
       } else {
-        // prefer the tone closest to the previous string's fret (compactness)
         const prev = picks[picks.length - 1].fret;
-        fret = options.reduce((a, b) =>
+        // Would picking `f` extend an existing same-fret pair into a 3+ barre?
+        const run = tailRun(picks);
+        const extendsBarre = (f: number) => f === prev && run >= 2;
+        // Prefer barre-free candidates; fall back to all options if none exist.
+        const safe = options.filter((f) => !extendsBarre(f));
+        const pool = safe.length > 0 ? safe : options;
+        // Among the pool, prefer the tone closest to the previous string's fret
+        // (compactness). Ties resolve to the lower fret — deterministic.
+        fret = pool.reduce((a, b) =>
           Math.abs(b - prev) < Math.abs(a - prev) ? b : a
         );
       }
@@ -124,7 +160,8 @@ export function deduceSweepShape(
     const frets = picks.map((p) => p.fret);
     const span = Math.max(...frets) - Math.min(...frets);
     const rootOnBottom = picks[0].role === "root" ? 0 : 4; // strong preference
-    const score = span + rootOnBottom + lo * 0.01; // tie-break: lower position wins
+    const score =
+      span + rootOnBottom + barrePenalty(frets) + lo * 0.01; // tie-break: lower position wins
     if (score < bestScore) {
       bestScore = score;
       best = picks;
